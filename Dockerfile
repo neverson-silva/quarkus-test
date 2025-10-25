@@ -1,32 +1,31 @@
-####
-# This Dockerfile is used in order to build a container that runs the Quarkus application in native (no JVM) mode.
-# It uses a micro base image, tuned for Quarkus native executables.
-# It reduces the size of the resulting container image.
-# Check https://quarkus.io/guides/quarkus-runtime-base-image for further information about this image.
-#
-# Before building the container image run:
-#
-# ./mvnw package -Dnative
-#
-# Then, build the image with:
-#
-# docker build -f src/main/docker/Dockerfile -t quarkus/funvest .
-#
-# Then run the container using:
-#
-# docker run -i --rm -p 8080:8080 quarkus/funvest
-#
-# The `quay.io/quarkus/ubi9-quarkus-micro-image:2.0` base image is based on UBI 9.
-# To use UBI 8, switch to `quay.io/quarkus/quarkus-micro-image:2.0`.
-###
+
+# ---- Etapa 1: Build do binário nativo ---------------------------------
+FROM container-registry.oracle.com/graalvm/native-image:25 AS build
+WORKDIR /app
+
+# Copia o projeto para dentro da imagem
+COPY . .
+
+# Dá permissão ao mvnw, caso necessário
+RUN chmod +x mvnw
+
+# Executa o build nativo
+RUN  ./mvnw install -Dnative
+
+
+# ---- Etapa 2: Imagem final (mínima, só o binário) ----------------------
 FROM quay.io/quarkus/ubi9-quarkus-micro-image:2.0
 WORKDIR /work/
-RUN chown 1001 /work \
-    && chmod "g+rwX" /work \
-    && chown 1001:root /work
-COPY --chown=1001:root --chmod=0755 target/*-runner /work/application
 
-EXPOSE 8080
+# Ajusta permissões e diretório
+RUN chown 1001 /work && chmod "g+rwX" /work && chown 1001:root /work
+
+# Copia o binário nativo gerado na etapa anterior
+COPY --from=build --chown=1001:root --chmod=0755 /app/target/*-runner /work/application
+
+
+EXPOSE ${PORT}
+
 USER 1001
 
-ENTRYPOINT ["./application", "-Dquarkus.http.host=0.0.0.0"]
+ENTRYPOINT ["/bin/sh", "-c", "./application -Dquarkus.http.host=0.0.0.0 -Dquarkus.http.port=${PORT}"]
